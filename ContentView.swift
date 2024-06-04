@@ -1,119 +1,136 @@
 import SwiftUI
-import CoreML
 import Vision
-import PencilKit
 
 struct ContentView: View {
-    @State private var canvasView = PKCanvasView()
-    @State private var recognizedText = ""
-    @State private var mnistClassifier: VNCoreMLModel?
-    
+    @State private var resultText = "분석 결과가 여기에 나타납니다."
+    @State private var showImagePicker = false
+    @State private var selectedImage: UIImage?
+
     var body: some View {
         VStack {
-            CanvasView(canvasView: $canvasView)
-                .frame(height: 400)
-                .background(canvasBackgroundColor())
-                .cornerRadius(10)
-                .padding()
+            Text("Image Classification")
+                .font(.title)
+                .fontWeight(.bold)
+                .padding(.top, 20)
             
-            Button("Recognize") {
-                recognizeDrawing()
-            }
-            .padding()
-            
-            Text("Recognized Number: \(recognizedText)")
-                .padding()
-            
-            Button("Clear") {
-                clearCanvas()
-            }
-            .padding()
-        }
-        .onAppear {
-            loadModel()
-        }
-    }
-    
-    func loadModel() {
-        guard let modelURL = Bundle.main.url(forResource: "MNISTClassifier", withExtension: "mlmodelc") else {
-            print("Model file not found")
-            return
-        }
-        
-        do {
-            let model = try MLModel(contentsOf: modelURL)
-            self.mnistClassifier = try VNCoreMLModel(for: model)
-        } catch {
-            print("Failed to load model: \(error.localizedDescription)")
-        }
-    }
-    
-    func recognizeDrawing() {
-        guard let mnistClassifier = mnistClassifier else {
-            print("Model is not loaded")
-            return
-        }
-        
-        let drawing = canvasView.drawing
-        guard let image = drawing.image(from: drawing.bounds, scale: 1.0).cgImage else {
-            print("Failed to get image from drawing")
-            return
-        }
-        
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        let request = VNCoreMLRequest(model: mnistClassifier) { request, error in
-            if let results = request.results as? [VNClassificationObservation] {
-                if let topResult = results.first {
-                    DispatchQueue.main.async {
-                        self.recognizedText = topResult.identifier
-                    }
+            ZStack {
+                RoundedRectangle(cornerRadius: 15)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 200, height: 200)
+                if let selectedImage = selectedImage {
+                    Image(uiImage: selectedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 200, height: 200)
+                        .cornerRadius(15)
+                } else {
+                    Image(systemName: "photo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .foregroundColor(.gray)
+                        .frame(width: 100, height: 100)
                 }
-            } else {
-                print("No results found: \(error?.localizedDescription ?? "Unknown error")")
             }
-        }
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try handler.perform([request])
-            } catch {
-                print("Failed to perform request: \(error.localizedDescription)")
+
+            Button(action: {
+                self.showImagePicker.toggle()
+            }) {
+                Text("이미지 선택")
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue)
+                    .cornerRadius(10)
             }
+            .padding()
+
+            Text(resultText)
+                .foregroundColor(.black)
+                .padding()
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(10)
+
+            Spacer()
+            
+            Text("Made By Speedyfriend67")
+                .font(.footnote)
+                .foregroundColor(.gray)
+                .padding(.bottom, -30)
+        }
+        .padding()
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker(selectedImage: self.$selectedImage)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .imageAnalyzed)) { _ in
+            self.analyzeImage()
         }
     }
-    
-    func clearCanvas() {
-        canvasView.drawing = PKDrawing()
-        recognizedText = ""
-    }
-    
-    func canvasBackgroundColor() -> Color {
-        if UITraitCollection.current.userInterfaceStyle == .dark {
-            return Color.white
-        } else {
-            return Color.black
+
+    private func analyzeImage() {
+        guard let selectedImage = selectedImage,
+              let ciImage = CIImage(image: selectedImage) else {
+            return
+        }
+
+        do {
+            let model = try VNCoreMLModel(for: MobileNetV2().model)
+            let handler = VNImageRequestHandler(ciImage: ciImage)
+            let request = VNCoreMLRequest(model: model) { request, _ in
+                if let results = request.results as? [VNClassificationObservation], let firstResult = results.first {
+                    self.resultText = "\(firstResult.identifier) (\(Int(firstResult.confidence * 100))%)"
+                } else {
+                    self.resultText = "분석 결과 없음."
+                }
+            }
+            try handler.perform([request])
+        } catch {
+            print("이미지 분석 에러: \(error.localizedDescription)")
         }
     }
 }
 
-struct CanvasView: UIViewRepresentable {
-    @Binding var canvasView: PKCanvasView
-
-    func makeUIView(context: Context) -> PKCanvasView {
-        canvasView.drawingPolicy = .anyInput
-        canvasView.backgroundColor = .clear
-        canvasView.isOpaque = false
-        return canvasView
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
     }
-
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
 }
 
-@main
-struct HandwritingRecognitionApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var selectedImage: UIImage?
+
+    func makeCoordinator() -> Coordinator {
+        return Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let parent: ImagePicker
+
+        init(parent: ImagePicker) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let uiImage = info[.originalImage] as? UIImage {
+                parent.selectedImage = uiImage
+                NotificationCenter.default.post(name: .imageAnalyzed, object: nil)
+            }
+
+            picker.dismiss(animated: true)
         }
     }
 }
+
+extension Notification.Name {
+    static let imageAnalyzed = Notification.Name("imageAnalyzed")
+}
+
