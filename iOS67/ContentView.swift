@@ -2,7 +2,7 @@ import SwiftUI
 import Vision
 
 struct ContentView: View {
-    @State private var resultText = "분석 결과가 여기에 나타납니다."
+    @State private var resultText = "Analyzed results here"
     @State private var showImagePicker = false
     @State private var selectedImage: UIImage?
 
@@ -35,7 +35,7 @@ struct ContentView: View {
             Button(action: {
                 self.showImagePicker.toggle()
             }) {
-                Text("이미지 선택")
+                Text("Select Image")
                     .foregroundColor(.white)
                     .padding()
                     .frame(maxWidth: .infinity)
@@ -81,12 +81,12 @@ struct ContentView: View {
                 if let results = request.results as? [VNClassificationObservation], let firstResult = results.first {
                     self.resultText = "\(firstResult.identifier) (\(Int(firstResult.confidence * 100))%)"
                 } else {
-                    self.resultText = "분석 결과 없음."
+                    self.resultText = "No Results"
                 }
             }
             try handler.perform([request])
         } catch {
-            print("이미지 분석 에러: \(error.localizedDescription)")
+            print("Image Analyze Error: \(error.localizedDescription)")
         }
     }
 }
